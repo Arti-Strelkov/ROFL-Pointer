@@ -18,7 +18,6 @@ function createCursor() {
   cursor = document.createElement('div');
   cursor.className = 'rofl-cursor';
   cursor.style.backgroundImage = `url(${cursorURL})`;
-  // Не устанавливаем размеры инлайново, используем класс CSS
   document.body.appendChild(cursor);
 
   // Create audio elements
@@ -27,34 +26,28 @@ function createCursor() {
   
   // Configure loop audio
   loopAudio.loop = true;
-  loopAudio.volume = 1.0; // Ensure full volume
+  loopAudio.volume = 1.0;
   
   // Add error handling for audio loading
   loopAudio.addEventListener('error', (e) => {
     console.error('Loop audio error:', e);
   });
 
-  // Enable audio
   clickAudio.load();
   loopAudio.load();
 
-  // Create simple style element just for pointer override
+  // Create style element for pointer override
   if (!cursorStyleSheet) {
     cursorStyleSheet = document.createElement('style');
     cursorStyleSheet.id = 'rofl-cursor-styles';
     document.head.appendChild(cursorStyleSheet);
   }
-
-  // Log to verify URLs
-  console.log('Loop audio URL:', loopAudioURL);
-  console.log('Click audio URL:', clickAudioURL);
 }
 
 function updateCursorPosition(e) {
   if (!cursor) return;
-  // Adjust position to account for the larger cursor size
-  cursor.style.left = `${e.clientX - 10}px`; // Увеличили отступ для большего курсора
-  cursor.style.top = `${e.clientY - 10}px`; // Немного подняли, чтобы кончик указывал на курсор
+  cursor.style.left = `${e.clientX - 10}px`;
+  cursor.style.top = `${e.clientY - 10}px`;
 }
 
 async function playLoopSound() {
@@ -71,73 +64,52 @@ async function playLoopSound() {
 
 function stopLoopSound() {
   if (!loopAudio) return;
-  
   loopAudio.pause();
   loopAudio.currentTime = 0;
   isLoopPlaying = false;
 }
 
-async function handleMouseDown(e) {
-  if (!cursor || !isEnabled) return;
+async function handlePointerDown(e) {
+  if (!cursor || !isEnabled || !isAltPressed) return;
   
-  // Only proceed if Alt is pressed
-  if (isAltPressed) {
-    rotation = 10; // Positive rotation for backwards tilt
-    cursor.style.transform = `scaleX(-1) rotate(${rotation}deg)`;
-    
-    // Play click sound
-    if (clickAudio) {
-      clickAudio.currentTime = 0;
-      try {
-        await clickAudio.play();
-      } catch (error) {
-        console.error('Failed to play click sound:', error);
-      }
+  rotation = 10;
+  cursor.style.transform = `scaleX(-1) rotate(${rotation}deg)`;
+  
+  if (clickAudio) {
+    clickAudio.currentTime = 0;
+    try {
+      await clickAudio.play();
+    } catch (error) {
+      console.error('Failed to play click sound:', error);
     }
-
-    // Start loop sound
-    playLoopSound();
-
-    // Prevent click
-    e.preventDefault();
-    e.stopPropagation();
-    return false; // Explicitly return false to prevent default behavior
   }
+
+  playLoopSound();
+  
+  // Block all further event propagation
+  e.stopPropagation();
+  e.preventDefault();
 }
 
-function handleMouseUp(e) {
-  if (!cursor || !isEnabled) return;
+function handlePointerUp(e) {
+  if (!cursor || !isEnabled || !isAltPressed) return;
   
-  if (isAltPressed) {
-    rotation = 0;
-    cursor.style.transform = `scaleX(-1) rotate(${rotation}deg)`;
-    
-    // Stop the loop sound
-    stopLoopSound();
-
-    // Prevent click
-    e.preventDefault();
-    e.stopPropagation();
-    return false; // Explicitly return false to prevent default behavior
-  }
+  rotation = 0;
+  cursor.style.transform = `scaleX(-1) rotate(${rotation}deg)`;
+  stopLoopSound();
+  
+  // Block all further event propagation
+  e.stopPropagation();
+  e.preventDefault();
 }
 
 function setPointerOverride(active) {
   if (!cursorStyleSheet) return;
   
-  if (active) {
-    // Only override pointer cursor
-    cursorStyleSheet.textContent = `
-      a, button, [role="button"], input[type="submit"], input[type="button"], 
-      [style*="cursor: pointer"], [style*="cursor:pointer"], .clickable, 
-      [onclick], [data-clickable="true"], .pointer {
-        cursor: none !important;
-      }
-    `;
-  } else {
-    // Remove overrides
-    cursorStyleSheet.textContent = '';
-  }
+  cursorStyleSheet.textContent = active ? `
+    * { cursor: none !important; pointer-events: none !important; }
+    .rofl-cursor { pointer-events: none !important; }
+  ` : '';
 }
 
 function toggleCursor(enabled) {
@@ -145,7 +117,6 @@ function toggleCursor(enabled) {
   
   if (isEnabled) {
     createCursor();
-    // Start with default cursor visible, custom cursor hidden
     document.body.style.cursor = 'auto';
     if (cursor) cursor.style.display = 'none';
     setPointerOverride(false);
@@ -159,16 +130,14 @@ function toggleCursor(enabled) {
   }
 }
 
-// Handle Alt key press
 function handleKeyDown(e) {
   if (e.key === 'Alt' && isEnabled && !isAltPressed) {
     isAltPressed = true;
     if (cursor) {
       cursor.style.display = 'block';
       document.body.style.cursor = 'none';
-      setPointerOverride(true); // Apply pointer override
+      setPointerOverride(true);
     }
-    // Prevent default Alt behavior (menu activation)
     e.preventDefault();
   }
 }
@@ -179,14 +148,14 @@ function handleKeyUp(e) {
     if (cursor) {
       cursor.style.display = 'none';
       document.body.style.cursor = 'auto';
-      setPointerOverride(false); // Remove pointer override
+      setPointerOverride(false);
     }
     stopLoopSound();
   }
 }
 
-// Capture and block all click events when in cursor mode
-function handleClick(e) {
+// Global pointer event blocker when in cursor mode
+function blockAllPointerEvents(e) {
   if (isAltPressed && isEnabled) {
     e.preventDefault();
     e.stopPropagation();
@@ -194,34 +163,31 @@ function handleClick(e) {
   }
 }
 
-// Initialize
 function init() {
-  // Check initial state
   chrome.storage.local.get(['isEnabled'], function(result) {
     if (result.isEnabled) {
       toggleCursor(true);
     }
   });
 
-  // Listen for messages from the extension
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'toggle') {
       toggleCursor(!isEnabled);
       sendResponse({ success: true });
     }
-    return true; // Keep the message channel open for sendResponse
+    return true;
   });
 
-  // Add event listeners with capture phase to ensure blocking
+  // Add event listeners
   document.addEventListener('mousemove', updateCursorPosition, { passive: true });
-  document.addEventListener('mousedown', handleMouseDown, { capture: true });
-  document.addEventListener('mouseup', handleMouseUp, { capture: true });
-  document.addEventListener('click', handleClick, { capture: true });
-  document.addEventListener('contextmenu', handleClick, { capture: true });
+  document.addEventListener('pointerdown', handlePointerDown, { capture: true });
+  document.addEventListener('pointerup', handlePointerUp, { capture: true });
+  document.addEventListener('click', blockAllPointerEvents, { capture: true });
+  document.addEventListener('contextmenu', blockAllPointerEvents, { capture: true });
   document.addEventListener('keydown', handleKeyDown, { capture: true });
   document.addEventListener('keyup', handleKeyUp);
   
-  // Prevent text selection when in cursor mode
+  // Prevent text selection
   document.addEventListener('selectstart', function(e) {
     if (isAltPressed && isEnabled) {
       e.preventDefault();
@@ -230,19 +196,16 @@ function init() {
   }, { capture: true });
 }
 
-// Clean up function to stop sounds when the page is hidden or closed
 function cleanup() {
   stopLoopSound();
 }
 
-// Ensure the script runs as soon as possible
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
 
-// Re-run initialization when document becomes visible
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible') {
     init();
@@ -251,5 +214,4 @@ document.addEventListener('visibilitychange', function() {
   }
 });
 
-// Clean up when the window is closed
 window.addEventListener('beforeunload', cleanup);
